@@ -47,4 +47,3 @@ deactivate
 8. Sum difference method
 
 The script will automatically skip NumPy-based methods if NumPy is not available.
-# playground
