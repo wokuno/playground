@@ -3,8 +3,13 @@ name: Test Missing Item Benchmark
 on:
   push:
     branches: [ main ]
+    paths:
+      - 'missing-item-benchmark/**'
+      - '.github/workflows/missing-item-test.yml'
   pull_request:
     branches: [ main ]
+    paths:
+      - 'missing-item-benchmark/**'
 
 jobs:
   test-python:
@@ -85,6 +90,7 @@ jobs:
       uses: actions/setup-go@v4
       with:
         go-version: '1.21'
+        cache: false
 
     - name: Verify Go installation
       run: go version
