@@ -229,10 +229,40 @@ jobs:
         echo "Using model: $TRAINED_MODEL"
         echo "Model size: $(ls -lh $TRAINED_MODEL | awk '{print $5}')"
         
-        # Make prediction using the trained model
+        # Check how much recent data we have
+        RECENT_POINTS=$(($(wc -l < data/recent_weather.csv) - 1))
+        echo "Recent data points available: $RECENT_POINTS"
+        
+        # If recent data is insufficient, supplement with historical data
+        if [ $RECENT_POINTS -lt 5 ]; then
+          echo "⚠️  Recent data insufficient for prediction (need 5, have $RECENT_POINTS)"
+          echo "📊 Supplementing recent data with latest historical data..."
+          
+          # Create a combined dataset with enough data for prediction
+          head -n 1 data/historical_data.csv > data/prediction_input.csv
+          # Take last 4 points from historical data
+          tail -n 4 data/historical_data.csv >> data/prediction_input.csv
+          # Add the recent data (skip header)
+          tail -n +2 data/recent_weather.csv >> data/prediction_input.csv
+          
+          # Verify we have enough data now
+          COMBINED_POINTS=$(($(wc -l < data/prediction_input.csv) - 1))
+          echo "Combined dataset has $COMBINED_POINTS data points"
+          
+          if [ $COMBINED_POINTS -ge 5 ]; then
+            INPUT_FILE="data/prediction_input.csv"
+          else
+            echo "❌ Still insufficient data even after combining datasets"
+            exit 1
+          fi
+        else
+          INPUT_FILE="data/recent_weather.csv"
+        fi
+        
+        # Make prediction using the prepared input data
         ./bin/predict \
           --model $TRAINED_MODEL \
-          --input data/recent_weather.csv \
+          --input $INPUT_FILE \
           --output data/prediction.csv
         
         echo "✅ Prediction completed successfully"
@@ -300,13 +330,27 @@ jobs:
           # Save the actual last value for comparison
           tail -n 1 data/recent_weather.csv > data/actual_value.csv
         else
-          echo "Using training data for accuracy test (recent data insufficient: $RECENT_POINTS points)"
-          # Create test data from training set
+          echo "Using combined data for accuracy test (recent data insufficient: $RECENT_POINTS points)"
+          # Create test data from combination of historical and recent data
           head -n 1 data/historical_data.csv > data/test_input.csv
-          tail -n 5 data/historical_data.csv >> data/test_input.csv
+          # Take last 4 points from historical data + recent data
+          tail -n 4 data/historical_data.csv >> data/test_input.csv
+          tail -n +2 data/recent_weather.csv >> data/test_input.csv
           
-          # Save the actual last value for comparison
-          tail -n 1 data/historical_data.csv > data/actual_value.csv
+          # Verify we have enough data
+          TEST_POINTS=$(($(wc -l < data/test_input.csv) - 1))
+          if [ $TEST_POINTS -lt 5 ]; then
+            echo "Still insufficient data for accuracy test, using training data"
+            head -n 1 data/historical_data.csv > data/test_input.csv
+            tail -n 5 data/historical_data.csv >> data/test_input.csv
+          fi
+          
+          # Save the actual last value for comparison (from recent data if available)
+          if [ $RECENT_POINTS -gt 0 ]; then
+            tail -n 1 data/recent_weather.csv > data/actual_value.csv
+          else
+            tail -n 1 data/historical_data.csv > data/actual_value.csv
+          fi
         fi
         
         # Make prediction using the test data
