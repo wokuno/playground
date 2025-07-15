@@ -1,6 +1,6 @@
 # Missing Item Benchmark
 
-This project benchmarks different methods for finding a missing element in a list using various approaches including XOR operations, loops, sets, and NumPy. It includes both **Python** and **C** implementations for performance comparison.
+This project benchmarks different methods for finding a missing element in a list using various approaches including XOR operations, loops, sets, and NumPy. It includes **Python**, **C**, and **Go** implementations for performance comparison.
 
 ## Project Structure
 
@@ -12,7 +12,12 @@ missing-item-benchmark/
 ├── c/                         # C implementation  
 │   ├── missing-item.c         # Main C benchmark program
 │   └── Makefile              # Build configuration
-├── setup_and_test.sh         # Setup script for both versions
+├── go/                        # Go implementation
+│   ├── missing-item.go        # Main Go benchmark program
+│   ├── go.mod                # Go module file
+│   ├── Makefile              # Build configuration
+│   └── README.md             # Go-specific documentation
+├── setup_and_test.sh         # Setup script for all versions
 └── README.md                 # This file
 ```
 
@@ -28,16 +33,22 @@ missing-item-benchmark/
 - High-performance native implementation
 - Makefile for easy building and testing
 
+### Go Version (`go/missing-item.go`)
+- 5 algorithms: XOR (original & optimized), sum difference, linear search, and set-based
+- Native Go performance with garbage collection
+- Makefile for easy building and testing
+
 ## Setup and Testing
 
 ### GitHub Actions
-The project includes a GitHub Actions workflow that automatically tests both Python and C versions:
+The project includes a GitHub Actions workflow that automatically tests Python, C, and Go versions:
 - Python: Tests across multiple versions (3.8-3.12) with virtual environments
 - C: Compiles and tests with GCC on Ubuntu
+- Go: Compiles and tests with the latest Go version
 
 ### Local Testing
 
-#### Option 1: Use the setup script (tests both versions)
+#### Option 1: Use the setup script (tests all versions)
 ```bash
 ./setup_and_test.sh
 ```
@@ -78,6 +89,23 @@ make debug     # Build debug version
 make clean     # Clean build files
 ```
 
+**Go version:**
+```bash
+# Build and run
+cd go
+make run
+
+# Or step by step
+make           # Build
+./missing-item # Run
+
+# Other useful targets
+make time      # Run with timing
+make release   # Build optimized version
+make clean     # Clean build files
+make check     # Format and vet code
+```
+
 ## Requirements
 
 ### Python Version
@@ -86,6 +114,11 @@ make clean     # Clean build files
 
 ### C Version  
 - GCC compiler
+- Make utility
+- No external dependencies
+
+### Go Version
+- Go 1.21+
 - Make utility
 - No external dependencies
 
@@ -107,8 +140,15 @@ make clean     # Clean build files
 3. Sum difference method
 4. Linear search method
 
+### Go Version
+1. XOR method (original)
+2. XOR method (optimized)
+3. Sum difference method
+4. Linear search method
+5. Set-based method
+
 ## Performance Notes
 
-The C version typically provides significant performance improvements over Python for large datasets, while the Python version offers more algorithmic variety and NumPy optimizations for scientific computing workflows.
+The C version typically provides significant performance improvements over Python for large datasets, while Go offers a good balance between performance and ease of development. The Python version offers more algorithmic variety and NumPy optimizations for scientific computing workflows.
 
-Both implementations will automatically skip unavailable methods (e.g., NumPy methods when NumPy isn't installed).
+All implementations will automatically skip unavailable methods (e.g., NumPy methods when NumPy isn't installed).

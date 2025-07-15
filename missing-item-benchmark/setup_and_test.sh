@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Script to setup and test both Python and C versions of the Missing Item benchmark
+# Script to setup and test Python, C, and Go versions of the Missing Item benchmark
 # This mimics what the GitHub Actions workflow does
 
 set -e  # Exit on any error
@@ -87,6 +87,65 @@ test_c() {
     echo "✅ C test completed successfully!"
 }
 
+# Function to test Go version
+test_go() {
+    echo ""
+    echo "=== Go Version ==="
+    
+    # Check if Go is available
+    if ! command -v go &> /dev/null; then
+        echo "❌ Go is not installed. Please install Go first."
+        return 1
+    fi
+
+    echo "📋 Go version:"
+    go version
+    
+    echo "🔧 Building Go benchmark..."
+    cd go
+    make clean
+    make
+    
+    echo "🧪 Running Go Missing Item benchmark..."
+    make run
+    
+    echo "🔍 Testing with timing..."
+    make time
+    cd ..
+    
+    echo "✅ Go test completed successfully!"
+}
+
+# Function to clean up temporary files and directories
+cleanup() {
+    echo ""
+    echo "🧹 Cleaning up temporary files..."
+    
+    # Remove Python virtual environment
+    if [ -d "venv" ]; then
+        echo "🗑️ Removing Python virtual environment..."
+        rm -rf venv
+    fi
+    
+    # Clean C build artifacts
+    if [ -d "c" ]; then
+        echo "🗑️ Cleaning C build artifacts..."
+        cd c
+        make clean > /dev/null 2>&1 || true
+        cd ..
+    fi
+    
+    # Clean Go build artifacts
+    if [ -d "go" ]; then
+        echo "🗑️ Cleaning Go build artifacts..."
+        cd go
+        make clean > /dev/null 2>&1 || true
+        cd ..
+    fi
+    
+    echo "✅ Cleanup completed!"
+}
+
 
 # Check for help flag
 if [[ "$1" == "-h" || "$1" == "--help" ]]; then
@@ -104,13 +163,23 @@ if [[ "$1" == "-h" || "$1" == "--help" ]]; then
     echo "  make run       # Build and run"
     echo "  make time      # Build and run with timing"
     echo "  make clean     # Clean build files"
+    echo ""
+    echo "Go version:"
+    echo "  cd go"
+    echo "  make           # Build"
+    echo "  make run       # Build and run"
+    echo "  make time      # Build and run with timing"
+    echo "  make clean     # Clean build files"
     exit 0
 fi
 
-# Run both tests
+# Run all tests
 test_python
 test_c
+test_go
 
 echo ""
 echo "🎉 All tests completed successfully!"
 
+# Clean up after successful completion
+cleanup

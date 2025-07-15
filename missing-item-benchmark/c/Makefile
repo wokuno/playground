@@ -29,6 +29,7 @@ time: $(TARGET)
 # Clean build artifacts
 clean:
 	rm -f $(TARGET) $(TARGET)_debug
+	@if ls $(TARGET)_debug.* 1> /dev/null 2>&1; then rm -rf $(TARGET)_debug.*; fi  # Remove debug artifacts if present
 
 # Install dependencies (for CI)
 install-deps:
