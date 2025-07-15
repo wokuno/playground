@@ -1,0 +1,45 @@
+# Build directories
+bin/
+obj/
+build/
+
+# Data files (exclude test data)
+data/*.csv
+!data/test_weather.csv
+
+# Model files
+models/*.bin
+models/*.model
+
+# Compiled binaries
+*.o
+*.exe
+*.out
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*.temp
+
+# Backup files
+*.bak
+*.backup
