@@ -148,23 +148,19 @@ if __name__ == "__main__":
                 time_results[key].append(elapsed)
                 results.append(result)
 
-        # Calculate averages
-        avg_times = {
-            'xor': sum(time_results['xor']) / len(time_results['xor']),
-            'xor_opt': sum(time_results['xor_opt']) / len(time_results['xor_opt']),
-            'xor_reduce': sum(time_results['xor_reduce']) / len(time_results['xor_reduce']),
-            'xor_numpy': sum(time_results['xor_numpy']) / len(time_results['xor_numpy']),
-            'xor_numpy_combined': sum(time_results['xor_numpy_combined']) / len(time_results['xor_numpy_combined']),
-            'loop': sum(time_results['loop']) / len(time_results['loop']),
-            'set': sum(time_results['set']) / len(time_results['set']),
-            'sum': sum(time_results['sum']) / len(time_results['sum'])
-        }
+        # Calculate averages only for available functions
+        avg_times = {}
+        for key in test_functions.keys():
+            if time_results[key]:  # Only calculate if we have results
+                avg_times[key] = sum(time_results[key]) / len(time_results[key])
 
         print(f"Average time using XOR: {avg_times['xor']:.8f} seconds")
         print(f"Average time using XOR (optimized): {avg_times['xor_opt']:.8f} seconds")
         print(f"Average time using XOR (reduce): {avg_times['xor_reduce']:.8f} seconds")
-        print(f"Average time using XOR (NumPy): {avg_times['xor_numpy']:.8f} seconds")
-        print(f"Average time using XOR (NumPy combined): {avg_times['xor_numpy_combined']:.8f} seconds")
+        if 'xor_numpy' in avg_times:
+            print(f"Average time using XOR (NumPy): {avg_times['xor_numpy']:.8f} seconds")
+        if 'xor_numpy_combined' in avg_times:
+            print(f"Average time using XOR (NumPy combined): {avg_times['xor_numpy_combined']:.8f} seconds")
         print(f"Average time using Loop: {avg_times['loop']:.8f} seconds")
         print(f"Average time using Set: {avg_times['set']:.8f} seconds")
         print(f"Average time using Sum: {avg_times['sum']:.8f} seconds")
@@ -174,12 +170,16 @@ if __name__ == "__main__":
             'XOR': avg_times['xor'],
             'XOR (optimized)': avg_times['xor_opt'],
             'XOR (reduce)': avg_times['xor_reduce'],
-            'XOR (NumPy)': avg_times['xor_numpy'],
-            'XOR (NumPy combined)': avg_times['xor_numpy_combined'],
             'Loop': avg_times['loop'],
             'Set': avg_times['set'],
             'Sum': avg_times['sum']
         }
+        
+        # Add NumPy methods only if they were tested
+        if 'xor_numpy' in avg_times:
+            times['XOR (NumPy)'] = avg_times['xor_numpy']
+        if 'xor_numpy_combined' in avg_times:
+            times['XOR (NumPy combined)'] = avg_times['xor_numpy_combined']
 
         fastest_method = min(times, key=times.get)
         print(f"Fastest method: {fastest_method} ({times[fastest_method]:.8f} seconds)")

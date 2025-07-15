@@ -1,16 +1,17 @@
-name: Test XOR Script
+name: Test Missing Item Benchmark
 
 on:
   push:
     branches: [ main, master ]
   pull_request:
+    branches: [ main, master ]
 
 jobs:
-  test:
+  test-python:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ['3.12']
+        python-version: ['3.8', '3.9', '3.10', '3.11', '3.12']
 
     steps:
     - uses: actions/checkout@v4
@@ -27,21 +28,49 @@ jobs:
         echo "VIRTUAL_ENV=$VIRTUAL_ENV" >> $GITHUB_ENV
         echo "$VIRTUAL_ENV/bin" >> $GITHUB_PATH
 
-    - name: Install dependencies
+    - name: Install Python dependencies
       run: |
         source venv/bin/activate
         python -m pip install --upgrade pip
-        pip install -r xor-benchmark/requirements.txt
+        pip install -r missing-item-benchmark/python/requirements.txt
 
-    - name: Run XOR script tests
+    - name: Run Python missing item benchmark
       run: |
         source venv/bin/activate
-        cd xor-benchmark
-        python xor.py
+        cd missing-item-benchmark/python
+        python missing-item.py
 
     - name: Run unit tests (if any)
       run: |
         source venv/bin/activate
-        cd xor-benchmark
+        cd missing-item-benchmark/python
         python -m pytest tests/ -v || echo "No tests found, skipping pytest"
       continue-on-error: true
+
+  test-c:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install C compiler
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y gcc make
+
+    - name: Build C benchmark
+      run: |
+        cd missing-item-benchmark/c
+        make clean
+        make
+
+    - name: Run C benchmark
+      run: |
+        cd missing-item-benchmark/c
+        make test
+
+    - name: Test debug build
+      run: |
+        cd missing-item-benchmark/c
+        make debug
+        ./missing-item_debug
