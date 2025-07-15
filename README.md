@@ -8,12 +8,9 @@ This repository contains various coding experiments and benchmarks.
 A comprehensive benchmark project that tests different methods for finding a missing element in a list using various approaches including XOR operations, loops, sets, and NumPy.
 
 **Features:**
-- Tests 8 different algorithms for finding missing elements
-- Benchmarks performance across different list sizes  
-- Supports multiple Python versions (3.8-3.12)
-- Includes both Python and C implementations
-- Includes GitHub Actions CI/CD pipeline
-- Virtual environment setup scripts
+- Tests different algorithms for finding missing elements
+- Benchmarks performance across different array sizes  
+- Includes both implementations in multiple languages (python, c, go)
 
 [See the Missing Item Benchmark README](missing-item-benchmark/README.md) for detailed setup and usage instructions.
 

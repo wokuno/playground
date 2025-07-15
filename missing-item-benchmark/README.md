@@ -6,18 +6,18 @@ This project benchmarks different methods for finding a missing element in a lis
 
 ```
 missing-item-benchmark/
-├── python/                    # Python implementation
-│   ├── missing-item.py        # Main Python benchmark script
-│   └── requirements.txt       # Python dependencies
-├── c/                         # C implementation  
-│   ├── missing-item.c         # Main C benchmark program
-│   └── Makefile              # Build configuration
-├── go/                        # Go implementation
-│   ├── missing-item.go        # Main Go benchmark program
-│   ├── go.mod                # Go module file
-│   └── Makefile              # Build configuration
-├── run.sh         # Setup script for all versions
-└── README.md                 # This file
+├── python/                 # Python implementation
+│   ├── missing-item.py     # Main Python benchmark script
+│   └── requirements.txt    # Python dependencies
+├── c/                      # C implementation  
+│   ├── missing-item.c      # Main C benchmark program
+│   └── Makefile            # Build configuration
+├── go/                     # Go implementation
+│   ├── missing-item.go     # Main Go benchmark program
+│   ├── go.mod              # Go module file
+│   └── Makefile            # Build configuration
+├── run.sh                  # Setup script for all versions
+└── README.md               # This file
 ```
 
 ## Implementations
