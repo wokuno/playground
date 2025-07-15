@@ -178,20 +178,20 @@ class NOAAWeatherFetcher:
         # Sort by timestamp (oldest first)
         all_weather_data.sort(key=lambda x: x['timestamp'])
         
-        # Remove duplicates and take one observation per day (approximately)
-        daily_data = []
-        last_date = None
+        # Remove duplicates and filter to reasonable intervals (every 3-6 hours instead of daily)
+        filtered_data = []
+        last_timestamp = None
+        min_interval_hours = 3  # Minimum 3 hours between observations
         
         for data in all_weather_data:
-            current_date = datetime.fromisoformat(data['timestamp'].replace('Z', '+00:00')).date()
-            if current_date != last_date:
-                daily_data.append(data)
-                last_date = current_date
+            current_timestamp = datetime.fromisoformat(data['timestamp'].replace('Z', '+00:00'))
             
-            if len(daily_data) >= days:
-                break
+            if last_timestamp is None or (current_timestamp - last_timestamp).total_seconds() >= min_interval_hours * 3600:
+                filtered_data.append(data)
+                last_timestamp = current_timestamp
         
-        return daily_data
+        print(f"Filtered {len(all_weather_data)} observations down to {len(filtered_data)} data points (min {min_interval_hours}h intervals)")
+        return filtered_data
     
     def fetch_recent_data(self, station_id, hours=48):
         """Fetch recent weather data for prediction testing"""

@@ -467,18 +467,35 @@ LSTMNetwork* load_lstm_model(const char* filename) {
     
     // Read weights (simplified)
     for (int i = 0; i < output_size; i++) {
-        fread(network->W_output->data[i], sizeof(double), hidden_size, file);
+        if (fread(network->W_output->data[i], sizeof(double), (size_t)hidden_size, file) != (size_t)hidden_size) {
+            printf("Error reading output weights\n");
+            lstm_network_free(network);
+            fclose(file);
+            return NULL;
+        }
     }
     
     for (int i = 0; i < output_size; i++) {
-        fread(&network->b_output->data[i][0], sizeof(double), 1, file);
+        if (fread(&network->b_output->data[i][0], sizeof(double), 1, file) != 1) {
+            printf("Error reading output bias\n");
+            lstm_network_free(network);
+            fclose(file);
+            return NULL;
+        }
     }
     
     // Read normalization parameters
     int has_norm;
     if (fread(&has_norm, sizeof(int), 1, file) == 1 && has_norm) {
         network->norm_params = malloc(sizeof(NormalizationParams));
-        fread(network->norm_params, sizeof(NormalizationParams), 1, file);
+        if (fread(network->norm_params, sizeof(NormalizationParams), 1, file) != 1) {
+            printf("Error reading normalization parameters\n");
+            free(network->norm_params);
+            network->norm_params = NULL;
+            lstm_network_free(network);
+            fclose(file);
+            return NULL;
+        }
     }
     
     fclose(file);

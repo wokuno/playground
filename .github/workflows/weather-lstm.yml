@@ -84,20 +84,40 @@ jobs:
         echo "🌤️ Fetching weather data from NOAA API..."
         DAYS="${{ github.event.inputs.days || '30' }}"
         
-        # Try NOAA API first with incremental updates, fallback to synthetic data
+        # Try NOAA API first with incremental updates
         if python3 scripts/fetch_noaa_weather.py --station KMSP --days $DAYS --incremental --output data/historical_data.csv; then
           echo "✅ Successfully fetched/updated NOAA weather data"
+          
+          # Check if we have enough data points for training
+          TRAINING_POINTS=$(($(wc -l < data/historical_data.csv) - 1))
+          echo "NOAA provided $TRAINING_POINTS data points"
+          
+          if [ $TRAINING_POINTS -lt 15 ]; then
+            echo "⚠️  NOAA data insufficient ($TRAINING_POINTS points), supplementing with synthetic data..."
+            # Generate synthetic data to supplement NOAA data
+            python3 scripts/fetch_weather.py --location KMSP --days $DAYS --output data/synthetic_supplement.csv
+            
+            # Combine the data (skip header of synthetic data)
+            tail -n +2 data/synthetic_supplement.csv >> data/historical_data.csv
+            
+            # Check final count
+            FINAL_POINTS=$(($(wc -l < data/historical_data.csv) - 1))
+            echo "✅ Combined dataset now has $FINAL_POINTS data points"
+            
+            # Clean up temporary file
+            rm -f data/synthetic_supplement.csv
+          fi
         else
-          echo "⚠️  NOAA fetch failed, exiting"
-          exit 1
+          echo "⚠️  NOAA fetch failed, using synthetic data only"
+          python3 scripts/fetch_weather.py --location KMSP --days $DAYS --output data/historical_data.csv
         fi
 
         # Fetch recent data for testing (always fresh for testing)
         if python3 scripts/fetch_noaa_weather.py --station KMSP --recent --output data/recent_weather.csv; then
           echo "✅ Successfully fetched real NOAA recent data"
         else
-          echo "⚠️  NOAA recent fetch failed, exiting"
-          exit 1
+          echo "⚠️  NOAA recent fetch failed, using synthetic recent data"
+          python3 scripts/fetch_weather.py --location KMSP --days 2 --recent --output data/recent_weather.csv
         fi
         
         echo "Weather data fetching completed"
