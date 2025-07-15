@@ -18,6 +18,15 @@ test_python() {
         return 1
     fi
 
+    echo "📋 Python version:"
+    python3 --version
+
+    # Clean up any existing virtual environment
+    if [ -d "venv" ]; then
+        echo "🗑️ Removing existing virtual environment..."
+        rm -rf venv
+    fi
+
     # Create virtual environment
     echo "📦 Creating virtual environment..."
     python3 -m venv venv
@@ -26,18 +35,27 @@ test_python() {
     echo "🔧 Activating virtual environment..."
     source venv/bin/activate
 
-    # Upgrade pip
-    echo "⬆️ Upgrading pip..."
+    # Verify virtual environment activation
+    if [ "$VIRTUAL_ENV" = "" ]; then
+        echo "❌ Failed to activate virtual environment"
+        return 1
+    fi
+
+    echo "✅ Virtual environment activated: $VIRTUAL_ENV"
+
+    # Upgrade pip using ensurepip first, then pip
+    echo "⬆️ Ensuring pip is available and upgrading..."
+    python -m ensurepip --upgrade 2>/dev/null || echo "ensurepip not needed"
     python -m pip install --upgrade pip
 
     # Install dependencies
     echo "📥 Installing dependencies..."
     if [ -f "python/requirements.txt" ]; then
-        pip install -r python/requirements.txt
+        python -m pip install -r python/requirements.txt
         echo "✅ Dependencies installed from python/requirements.txt"
     else
         echo "⚠️ No python/requirements.txt found, installing numpy manually..."
-        pip install numpy
+        python -m pip install numpy
     fi
 
     # Run the missing item script
