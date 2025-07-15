@@ -18,4 +18,4 @@ A comprehensive benchmark project that tests different methods for finding a mis
 [See the Missing Item Benchmark README](missing-item-benchmark/README.md) for detailed setup and usage instructions.
 
 ## GitHub Actions
-The repository includes automated testing workflows that run on push/PR to main/master branches. Each project has its own testing configuration optimized for its specific requirements.
+The repository includes automated testing workflows that run on push/PR to the main branch. Each project has its own testing configuration optimized for its specific requirements.
