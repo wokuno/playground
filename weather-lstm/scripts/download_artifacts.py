@@ -40,7 +40,7 @@ class GitHubArtifactDownloader:
             print(f"Error making request to {url}: {e}")
             return None
     
-    def get_workflow_runs(self, workflow_name="train-and-predict.yml", limit=10):
+    def get_workflow_runs(self, workflow_name="weather-lstm.yml", limit=10):
         """Get recent workflow runs"""
         url = f"{self.base_url}/repos/{self.repo_owner}/{self.repo_name}/actions/workflows/{workflow_name}/runs"
         url += f"?per_page={limit}&status=success"
