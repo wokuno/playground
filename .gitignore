@@ -13,6 +13,7 @@ ENV/
 # C build artifacts
 missing-item
 missing-item_debug
+missing-item_debug.*
 *.o
 *.exe
 
