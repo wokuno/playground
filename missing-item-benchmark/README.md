@@ -15,8 +15,7 @@ missing-item-benchmark/
 ├── go/                        # Go implementation
 │   ├── missing-item.go        # Main Go benchmark program
 │   ├── go.mod                # Go module file
-│   ├── Makefile              # Build configuration
-│   └── README.md             # Go-specific documentation
+│   └── Makefile              # Build configuration
 ├── setup_and_test.sh         # Setup script for all versions
 └── README.md                 # This file
 ```
