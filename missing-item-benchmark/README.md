@@ -16,7 +16,7 @@ missing-item-benchmark/
 │   ├── missing-item.go        # Main Go benchmark program
 │   ├── go.mod                # Go module file
 │   └── Makefile              # Build configuration
-├── setup_and_test.sh         # Setup script for all versions
+├── run.sh         # Setup script for all versions
 └── README.md                 # This file
 ```
 
@@ -37,7 +37,7 @@ missing-item-benchmark/
 - Native Go performance with garbage collection
 - Makefile for easy building and testing
 
-## Setup and Testing
+## Testing
 
 ### GitHub Actions
 The project includes a GitHub Actions workflow that automatically tests Python, C, and Go versions:
@@ -49,7 +49,7 @@ The project includes a GitHub Actions workflow that automatically tests Python, 
 
 #### Option 1: Use the setup script (tests all versions)
 ```bash
-./setup_and_test.sh
+./run.sh
 ```
 
 #### Option 2: Manual setup
