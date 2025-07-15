@@ -45,7 +45,15 @@ jobs:
     - name: Install build dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential gcc make
+        sudo apt-get install -y build-essential gcc make jq
+        
+        # Install GitHub CLI for more reliable artifact downloads
+        type -p curl >/dev/null || (sudo apt update && sudo apt install curl -y)
+        curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \
+        && sudo chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg \
+        && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
+        && sudo apt update \
+        && sudo apt install gh -y
     
     - name: Create necessary directories
       run: |
@@ -56,6 +64,7 @@ jobs:
         chmod +x scripts/*.py scripts/*.sh
     
     - name: Download previous artifacts
+      continue-on-error: true
       run: |
         echo "🔄 Attempting to download previous run artifacts..."
         
@@ -65,21 +74,66 @@ jobs:
         
         echo "Repository: $REPO_OWNER/$REPO_NAME"
         
-        # Try to download previous artifacts (may fail if none exist)
-        if python3 scripts/download_artifacts.py \
-          --owner "$REPO_OWNER" \
-          --repo "$REPO_NAME" \
-          --token "${{ secrets.GITHUB_TOKEN }}" \
-          --output-dir "." \
-          --artifact-name "weather-lstm-artifacts"; then
-          echo "✅ Successfully downloaded previous artifacts"
-          echo "Contents of models directory:"
-          ls -la models/ 2>/dev/null || echo "No previous models found"
-          echo "Contents of data directory:"
-          ls -la data/ 2>/dev/null || echo "No previous data found"
-        else
-          echo "ℹ️  No previous artifacts found or download failed (this is normal for first run)"
+        # Method 1: Use GitHub CLI to download artifacts if available
+        if command -v gh >/dev/null 2>&1; then
+          echo "📦 Method 1: Using GitHub CLI to download artifacts..."
+          
+          # Set up GitHub CLI authentication
+          echo "${{ secrets.GITHUB_TOKEN }}" | gh auth login --with-token 2>/dev/null
+          
+          # Try to download the latest weather-lstm-artifacts
+          echo "🔍 Looking for successful workflow runs..."
+          LATEST_RUN_ID=$(gh run list --repo "$REPO_OWNER/$REPO_NAME" --workflow="weather-lstm.yml" --status="success" --limit=10 --json databaseId,conclusion,status,createdAt | \
+             jq -r '.[] | select(.conclusion == "success") | .databaseId' | head -1)
+          
+          if [ -n "$LATEST_RUN_ID" ]; then
+            echo "📦 Found successful run: $LATEST_RUN_ID"
+            echo "⬇️  Attempting to download artifacts..."
+            
+            if gh run download "$LATEST_RUN_ID" --repo "$REPO_OWNER/$REPO_NAME" --name "weather-lstm-artifacts" --dir . 2>/dev/null; then
+              echo "✅ Successfully downloaded previous artifacts using GitHub CLI"
+              echo "Contents of models directory:"
+              ls -la models/ 2>/dev/null || echo "No previous models found"
+              echo "Contents of data directory:"
+              ls -la data/ 2>/dev/null || echo "No previous data found"
+            else
+              echo "⚠️  GitHub CLI download failed"
+            fi
+          else
+            echo "ℹ️  No successful runs found"
+          fi
         fi
+        
+        # Method 2: If GitHub CLI failed or not available, try simple curl-based download
+        if [ ! -d "models" ] || [ -z "$(ls -A models 2>/dev/null)" ]; then
+          echo ""
+          echo "📦 Method 2: Using simple curl-based download..."
+          chmod +x scripts/simple_artifact_download.sh
+          ./scripts/simple_artifact_download.sh "$REPO_OWNER" "$REPO_NAME" "${{ secrets.GITHUB_TOKEN }}" "weather-lstm-artifacts" || echo "Simple download failed"
+        fi
+        
+        # Method 3: If still no artifacts, try Python script
+        if [ ! -d "models" ] || [ -z "$(ls -A models 2>/dev/null)" ]; then
+          echo ""
+          echo "📦 Method 3: Using Python script..."
+          python3 scripts/download_artifacts.py \
+            --owner "$REPO_OWNER" \
+            --repo "$REPO_NAME" \
+            --token "${{ secrets.GITHUB_TOKEN }}" \
+            --output-dir "." \
+            --artifact-name "weather-lstm-artifacts" || echo "Python script failed"
+        fi
+        
+        # Show what we have after all download attempts
+        echo ""
+        echo "📂 Final state after all artifact download attempts:"
+        echo "Models:" && ls -la models/ 2>/dev/null || echo "  No models directory"
+        echo "Data:" && ls -la data/ 2>/dev/null || echo "  No data directory"
+        
+        # Always succeed this step - artifact download is optional
+        echo ""
+        echo "🔄 Artifact download step completed (success or graceful failure)"
+        echo "ℹ️  If no artifacts were found, this is normal for the first run"
 
     - name: Fetch weather data
       run: |

@@ -38,6 +38,14 @@ class GitHubArtifactDownloader:
             return json.loads(response.read().decode('utf-8'))
         except Exception as e:
             print(f"Error making request to {url}: {e}")
+            if hasattr(e, 'code'):
+                print(f"HTTP Status Code: {e.code}")
+            if hasattr(e, 'read'):
+                try:
+                    error_body = e.read().decode('utf-8')
+                    print(f"Error response: {error_body}")
+                except:
+                    pass
             return None
     
     def get_workflow_runs(self, workflow_name="weather-lstm.yml", limit=10):
@@ -65,13 +73,24 @@ class GitHubArtifactDownloader:
         request = Request(artifact_url, headers=headers)
         
         try:
+            print(f"Requesting artifact from: {artifact_url}")
             response = urlopen(request)
             
-            # GitHub returns a redirect to the actual download URL
+            # GitHub returns a redirect to the actual download URL (Azure Blob Storage)
             actual_url = response.geturl()
+            print(f"Redirected to: {actual_url}")
             
-            # Download the actual file
-            actual_request = Request(actual_url)
+            # For Azure Blob Storage URLs, we need to use the redirected URL as-is
+            # GitHub includes the necessary authentication in the redirect URL
+            if 'blob.core.windows.net' in actual_url:
+                print("Detected Azure Blob Storage URL - using direct download")
+                actual_request = Request(actual_url)
+                # Don't add authorization headers to Azure Blob Storage requests
+                # as GitHub has already provided the authenticated URL
+            else:
+                # For other URLs, include our auth headers
+                actual_request = Request(actual_url, headers=headers)
+            
             actual_response = urlopen(actual_request)
             
             with open(output_path, 'wb') as f:
@@ -80,6 +99,11 @@ class GitHubArtifactDownloader:
             return True
         except Exception as e:
             print(f"Error downloading artifact: {e}")
+            print(f"Request URL: {artifact_url}")
+            if hasattr(e, 'code'):
+                print(f"HTTP Status Code: {e.code}")
+            if hasattr(e, 'headers'):
+                print(f"Response headers: {dict(e.headers)}")
             return False
     
     def extract_artifact(self, zip_path, extract_to):
