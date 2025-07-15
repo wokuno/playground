@@ -181,8 +181,8 @@ class NOAAWeatherFetcher:
         # Remove duplicates and filter to reasonable intervals (every 3-6 hours instead of daily)
         filtered_data = []
         last_timestamp = None
-        min_interval_hours = 3  # Minimum 3 hours between observations
-        
+        min_interval_hours = 1  # Minimum 1 hour between observations
+
         for data in all_weather_data:
             current_timestamp = datetime.fromisoformat(data['timestamp'].replace('Z', '+00:00'))
             

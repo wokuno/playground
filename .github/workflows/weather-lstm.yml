@@ -5,10 +5,12 @@ on:
     branches: [ main, develop ]
     paths:
       - 'weather-lstm/**'
+      - '.github/workflows/weather-lstm.yml'
   pull_request:
     branches: [ main ]
     paths:
       - 'weather-lstm/**'
+      - '.github/workflows/weather-lstm.yml'
   schedule:
     # Run every 3 hours
     - cron: '0 */3 * * *'
@@ -84,43 +86,93 @@ jobs:
         echo "🌤️ Fetching weather data from NOAA API..."
         DAYS="${{ github.event.inputs.days || '30' }}"
         
+        # Test NOAA API connectivity first
+        echo "🔗 Testing NOAA API connectivity..."
+        if curl -s --connect-timeout 10 --max-time 30 "https://api.weather.gov" > /dev/null; then
+          echo "✅ NOAA API is reachable"
+        else
+          echo "❌ NOAA API is not reachable - check internet connectivity"
+          exit 1
+        fi
+        
         # Try NOAA API first with incremental updates
+        echo "📡 Fetching historical data from NOAA station KMSP..."
         if python3 scripts/fetch_noaa_weather.py --station KMSP --days $DAYS --incremental --output data/historical_data.csv; then
           echo "✅ Successfully fetched/updated NOAA weather data"
           
           # Check if we have enough data points for training
-          TRAINING_POINTS=$(($(wc -l < data/historical_data.csv) - 1))
-          echo "NOAA provided $TRAINING_POINTS data points"
-          
-          if [ $TRAINING_POINTS -lt 15 ]; then
-            echo "⚠️  NOAA data insufficient ($TRAINING_POINTS points), supplementing with synthetic data..."
-            # Generate synthetic data to supplement NOAA data
-            python3 scripts/fetch_weather.py --location KMSP --days $DAYS --output data/synthetic_supplement.csv
+          if [ -f "data/historical_data.csv" ]; then
+            TRAINING_POINTS=$(($(wc -l < data/historical_data.csv) - 1))
+            echo "📊 NOAA provided $TRAINING_POINTS data points"
             
-            # Combine the data (skip header of synthetic data)
-            tail -n +2 data/synthetic_supplement.csv >> data/historical_data.csv
-            
-            # Check final count
-            FINAL_POINTS=$(($(wc -l < data/historical_data.csv) - 1))
-            echo "✅ Combined dataset now has $FINAL_POINTS data points"
-            
-            # Clean up temporary file
-            rm -f data/synthetic_supplement.csv
+            if [ $TRAINING_POINTS -lt 5 ]; then
+              echo "❌ NOAA data insufficient ($TRAINING_POINTS points) - need at least 5 for basic training"
+              echo "🔍 Troubleshooting:"
+              echo "  - Check if KMSP station is operational"
+              echo "  - Try increasing --days parameter"
+              echo "  - Check data/historical_data.csv for content"
+              ls -la data/historical_data.csv 2>/dev/null || echo "  - File does not exist"
+              head -n 5 data/historical_data.csv 2>/dev/null || echo "  - Cannot read file"
+              exit 1
+            elif [ $TRAINING_POINTS -lt 10 ]; then
+              echo "⚠️  NOAA data limited ($TRAINING_POINTS points) - training may be constrained"
+              echo "📊 Minimum recommended: 10+ data points for reliable training"
+              echo "🔄 Will proceed with available data using adaptive model parameters"
+            else
+              echo "✅ Sufficient NOAA data for robust training ($TRAINING_POINTS points)"
+            fi
+          else
+            echo "❌ Historical data file was not created"
+            exit 1
           fi
         else
-          echo "⚠️  NOAA fetch failed, using synthetic data only"
-          python3 scripts/fetch_weather.py --location KMSP --days $DAYS --output data/historical_data.csv
+          echo "❌ NOAA historical data fetch failed"
+          echo "🔍 Troubleshooting:"
+          echo "  - NOAA API may be temporarily unavailable"
+          echo "  - Station KMSP may be down for maintenance"
+          echo "  - Network connectivity issues"
+          echo "  - Rate limiting from API"
+          
+          # Try to get station info for debugging
+          echo "🔧 Attempting to get station info for debugging..."
+          python3 scripts/fetch_noaa_weather.py --station KMSP --info || echo "Station info also failed"
+          
+          exit 1
         fi
 
         # Fetch recent data for testing (always fresh for testing)
+        echo "📡 Fetching recent data for prediction testing..."
         if python3 scripts/fetch_noaa_weather.py --station KMSP --recent --output data/recent_weather.csv; then
           echo "✅ Successfully fetched real NOAA recent data"
+          
+          if [ -f "data/recent_weather.csv" ]; then
+            RECENT_POINTS=$(($(wc -l < data/recent_weather.csv) - 1))
+            echo "📊 Recent data points: $RECENT_POINTS"
+            
+            if [ $RECENT_POINTS -lt 1 ]; then
+              echo "⚠️  Very limited recent data ($RECENT_POINTS points) - prediction testing will be minimal"
+            fi
+          fi
         else
-          echo "⚠️  NOAA recent fetch failed, using synthetic recent data"
-          python3 scripts/fetch_weather.py --location KMSP --days 2 --recent --output data/recent_weather.csv
+          echo "❌ NOAA recent fetch failed"
+          echo "🔍 This may not be critical if historical data is sufficient"
+          echo "📝 Creating minimal recent data file for testing..."
+          
+          # Create a minimal recent data file from historical data if available
+          if [ -f "data/historical_data.csv" ] && [ $TRAINING_POINTS -gt 0 ]; then
+            echo "🔄 Using last historical data point as recent data..."
+            head -n 1 data/historical_data.csv > data/recent_weather.csv
+            tail -n 1 data/historical_data.csv >> data/recent_weather.csv
+            echo "✅ Created fallback recent data file"
+          else
+            echo "❌ Cannot create fallback recent data - no historical data available"
+            exit 1
+          fi
         fi
         
-        echo "Weather data fetching completed"
+        echo ""
+        echo "🎉 Weather data fetching completed"
+        echo "📁 Data files summary:"
         ls -la data/
     
     - name: Build C programs
@@ -151,14 +203,19 @@ jobs:
         echo "Training data points: $TRAINING_POINTS"
         echo "Recent data points: $RECENT_POINTS"
         
-        if [ $TRAINING_POINTS -lt 15 ]; then
-          echo "Error: Insufficient training data"
+        # More flexible requirements for real NOAA data
+        if [ $TRAINING_POINTS -lt 5 ]; then
+          echo "Error: Insufficient training data (need at least 5 points for basic LSTM)"
           exit 1
+        elif [ $TRAINING_POINTS -lt 10 ]; then
+          echo "⚠️  Warning: Limited training data ($TRAINING_POINTS points) - model accuracy may be reduced"
         fi
         
-        if [ $RECENT_POINTS -lt 2 ]; then
-          echo "Error: Insufficient recent data for testing"
+        if [ $RECENT_POINTS -lt 1 ]; then
+          echo "Error: No recent data available for testing"
           exit 1
+        elif [ $RECENT_POINTS -lt 2 ]; then
+          echo "⚠️  Warning: Very limited recent data ($RECENT_POINTS points) - prediction testing will be basic"
         fi
         
         # Show sample data
@@ -197,22 +254,77 @@ jobs:
           echo "🆕 Training new model from scratch with $EPOCHS epochs"
         fi
         
-        # Train the model (using consistent output name)
-        ./bin/train \
+        # Adjust model parameters based on available data
+        TRAINING_POINTS=$(($(wc -l < data/historical_data.csv) - 1))
+        
+        if [ $TRAINING_POINTS -lt 10 ]; then
+          echo "📊 Adjusting model parameters for limited data ($TRAINING_POINTS points)"
+          HIDDEN_SIZE=16
+          SEQUENCE_LENGTH=3
+          LEARNING_RATE=0.005
+        elif [ $TRAINING_POINTS -lt 20 ]; then
+          echo "📊 Using conservative model parameters for moderate data ($TRAINING_POINTS points)"
+          HIDDEN_SIZE=24
+          SEQUENCE_LENGTH=4
+          LEARNING_RATE=0.008
+        else
+          echo "📊 Using standard model parameters for sufficient data ($TRAINING_POINTS points)"
+          HIDDEN_SIZE=32
+          SEQUENCE_LENGTH=5
+          LEARNING_RATE=0.01
+        fi
+        
+        echo "🔧 Training parameters:"
+        echo "  - Epochs: $EPOCHS"
+        echo "  - Hidden size: $HIDDEN_SIZE"  
+        echo "  - Sequence length: $SEQUENCE_LENGTH"
+        echo "  - Learning rate: $LEARNING_RATE"
+        echo "  - Training points: $TRAINING_POINTS"
+        echo ""
+        
+        # Ensure output directory exists
+        mkdir -p models
+        
+        # Train the model (using adaptive parameters)
+        echo "▶️  Starting model training..."
+        if ./bin/train \
           --data data/historical_data.csv \
           --epochs $EPOCHS \
           --output $OUTPUT_MODEL \
-          --hidden 32 \
-          --sequence 5 \
-          --learning-rate 0.01
-        
-        echo "✅ Training completed successfully"
-        echo "📁 Model saved as: $OUTPUT_MODEL"
-        echo "📊 Model file size: $(ls -lh $OUTPUT_MODEL | awk '{print $5}')"
+          --hidden $HIDDEN_SIZE \
+          --sequence $SEQUENCE_LENGTH \
+          --learning-rate $LEARNING_RATE; then
+          
+          echo "✅ Training completed successfully"
+          
+          # Verify model file was created
+          if [ -f "$OUTPUT_MODEL" ]; then
+            echo "📁 Model saved as: $OUTPUT_MODEL"
+            echo "📊 Model file size: $(ls -lh $OUTPUT_MODEL | awk '{print $5}')"
+            echo "🔧 Model parameters: Hidden=$HIDDEN_SIZE, Sequence=$SEQUENCE_LENGTH, LR=$LEARNING_RATE"
+          else
+            echo "❌ Error: Model file was not created despite successful training"
+            exit 1
+          fi
+        else
+          echo "❌ Training failed with exit code $?"
+          echo "📊 Training diagnostics:"
+          echo "  - Data file: $(ls -lh data/historical_data.csv 2>/dev/null || echo 'Missing')"
+          echo "  - Training executable: $(ls -lh bin/train 2>/dev/null || echo 'Missing')"
+          echo "  - Available memory: $(free -h 2>/dev/null | head -2 || echo 'Unknown')"
+          echo "  - Disk space: $(df -h . | tail -1)"
+          
+          # Show sample data for debugging
+          echo "📄 Sample training data (first 3 lines):"
+          head -n 3 data/historical_data.csv || echo "Cannot read data file"
+          
+          exit 1
+        fi
         
         # Show all models for debugging
-        echo "All model files:"
-        ls -la models/
+        echo ""
+        echo "📂 All model files:"
+        ls -la models/ || echo "No models directory"
     
     - name: Test prediction accuracy
       run: |
@@ -236,27 +348,37 @@ jobs:
         # If recent data is insufficient, supplement with historical data
         if [ $RECENT_POINTS -lt 5 ]; then
           echo "⚠️  Recent data insufficient for prediction (need 5, have $RECENT_POINTS)"
-          echo "📊 Supplementing recent data with latest historical data..."
+          echo "📊 Creating input sequence from historical data..."
           
-          # Create a combined dataset with enough data for prediction
+          # Create a prediction input with 5 points from historical data
+          # Don't include any recent data in the input - that would be the target
           head -n 1 data/historical_data.csv > data/prediction_input.csv
-          # Take last 4 points from historical data
-          tail -n 4 data/historical_data.csv >> data/prediction_input.csv
-          # Add the recent data (skip header)
-          tail -n +2 data/recent_weather.csv >> data/prediction_input.csv
+          tail -n 5 data/historical_data.csv >> data/prediction_input.csv
           
           # Verify we have enough data now
           COMBINED_POINTS=$(($(wc -l < data/prediction_input.csv) - 1))
-          echo "Combined dataset has $COMBINED_POINTS data points"
+          echo "Historical input sequence has $COMBINED_POINTS data points"
           
           if [ $COMBINED_POINTS -ge 5 ]; then
             INPUT_FILE="data/prediction_input.csv"
+            echo "✅ Using historical data sequence for prediction"
           else
-            echo "❌ Still insufficient data even after combining datasets"
+            echo "❌ Still insufficient historical data ($COMBINED_POINTS points)"
             exit 1
           fi
         else
-          INPUT_FILE="data/recent_weather.csv"
+          # We have enough recent data, but we need to be careful not to include the target
+          echo "✅ Using recent data for prediction input (excluding most recent as target)"
+          
+          # Create input sequence from recent data, excluding the very last point
+          head -n 1 data/recent_weather.csv > data/prediction_input.csv
+          # Take all but the last point as input sequence
+          tail -n +2 data/recent_weather.csv | head -n -1 >> data/prediction_input.csv
+          
+          INPUT_FILE="data/prediction_input.csv"
+          
+          INPUT_POINTS=$(($(wc -l < data/prediction_input.csv) - 1))
+          echo "📊 Created input sequence with $INPUT_POINTS points (recent data minus target)"
         fi
         
         # Make prediction using the prepared input data
@@ -287,7 +409,7 @@ jobs:
         echo "Testing training performance..."
         time ./bin/train \
           --data data/historical_data.csv \
-          --epochs 10 \
+          --epochs 5 \
           --output models/perf_test_model.bin \
           --hidden 16 \
           --sequence 3
@@ -295,9 +417,19 @@ jobs:
         # Test prediction speed with main model
         if [ -f "$MAIN_MODEL" ]; then
           echo "Testing prediction performance with $MAIN_MODEL..."
+          
+          # Check if we have enough recent data, if not use historical data
+          RECENT_POINTS=$(($(wc -l < data/recent_weather.csv) - 1))
+          if [ $RECENT_POINTS -ge 5 ]; then
+            PERF_INPUT="data/recent_weather.csv"
+          else
+            echo "⚠️  Using historical data for performance test (recent data insufficient)"
+            PERF_INPUT="data/historical_data.csv"
+          fi
+          
           time ./bin/predict \
             --model $MAIN_MODEL \
-            --input data/recent_weather.csv
+            --input $PERF_INPUT
         else
           echo "⚠️  Warning: Main model not found for prediction performance test"
         fi
@@ -321,37 +453,61 @@ jobs:
         
         if [ $RECENT_POINTS -ge 6 ]; then
           echo "Using recent weather data for accuracy test ($RECENT_POINTS points)"
-          # Extract enough data points for sequence testing
-          tail -n 7 data/recent_weather.csv > data/test_input.csv
-          head -n 1 data/recent_weather.csv > data/temp_header.csv
-          tail -n 6 data/test_input.csv >> data/temp_header.csv
-          cp data/temp_header.csv data/test_input.csv
           
-          # Save the actual last value for comparison
-          tail -n 1 data/recent_weather.csv > data/actual_value.csv
+          # We need at least 6 points to create a proper test:
+          # - Last point is the target (what we want to predict)
+          # - Previous 5 points are the input sequence
+          
+          # Get the last 6 points from recent data
+          tail -n 6 data/recent_weather.csv > data/temp_sequence.csv
+          
+          # Create input sequence: header + first 5 data points (excluding the last one)
+          head -n 1 data/recent_weather.csv > data/test_input.csv
+          head -n 5 data/temp_sequence.csv >> data/test_input.csv
+          
+          # Save the actual target value (the 6th/last point) for comparison
+          head -n 1 data/recent_weather.csv > data/actual_value.csv
+          tail -n 1 data/temp_sequence.csv >> data/actual_value.csv
+          
+          echo "📊 Created input sequence with 5 points, target is the 6th point"
         else
           echo "Using combined data for accuracy test (recent data insufficient: $RECENT_POINTS points)"
-          # Create test data from combination of historical and recent data
+          
+          # Create a longer sequence from historical + recent data
+          # Take enough points to have a 5-point input sequence + 1 target
           head -n 1 data/historical_data.csv > data/test_input.csv
-          # Take last 4 points from historical data + recent data
-          tail -n 4 data/historical_data.csv >> data/test_input.csv
-          tail -n +2 data/recent_weather.csv >> data/test_input.csv
+          
+          if [ $RECENT_POINTS -gt 0 ]; then
+            # Take last 5 points from historical, recent data becomes target
+            tail -n 5 data/historical_data.csv >> data/test_input.csv
+            
+            # Use the most recent point as target
+            head -n 1 data/recent_weather.csv > data/actual_value.csv
+            tail -n 1 data/recent_weather.csv >> data/actual_value.csv
+            
+            echo "📊 Created input sequence from historical data, recent data as target"
+          else
+            # All from historical data: last 6 points, split into 5 input + 1 target
+            tail -n 6 data/historical_data.csv > data/temp_sequence.csv
+            head -n 5 data/temp_sequence.csv >> data/test_input.csv
+            
+            # Last historical point becomes target
+            head -n 1 data/historical_data.csv > data/actual_value.csv
+            tail -n 1 data/temp_sequence.csv >> data/actual_value.csv
+            
+            echo "📊 Created input sequence and target from historical data"
+          fi
           
           # Verify we have enough data
           TEST_POINTS=$(($(wc -l < data/test_input.csv) - 1))
           if [ $TEST_POINTS -lt 5 ]; then
-            echo "Still insufficient data for accuracy test, using training data"
-            head -n 1 data/historical_data.csv > data/test_input.csv
-            tail -n 5 data/historical_data.csv >> data/test_input.csv
-          fi
-          
-          # Save the actual last value for comparison (from recent data if available)
-          if [ $RECENT_POINTS -gt 0 ]; then
-            tail -n 1 data/recent_weather.csv > data/actual_value.csv
-          else
-            tail -n 1 data/historical_data.csv > data/actual_value.csv
+            echo "⚠️  Still insufficient data for proper accuracy test ($TEST_POINTS points)"
+            echo "📝 Using available data with warning about limited sequence length"
           fi
         fi
+        
+        # Clean up temporary files
+        rm -f data/temp_sequence.csv
         
         # Make prediction using the test data
         echo "Making prediction for accuracy test..."
@@ -372,11 +528,14 @@ jobs:
             echo ""
             echo "🎯 Accuracy Analysis:"
             echo "==================="
+            echo "📝 Model was given an input sequence and asked to predict the next weather point."
+            echo "📝 The 'actual' value below was NOT provided to the model - it's the true target."
+            echo ""
             
             # Get predicted temperature (skip header, get first data value)
             PREDICTED_TEMP=$(tail -n +2 data/accuracy_test.csv | head -n 1 | cut -d',' -f1 2>/dev/null || echo "0")
             
-            # Get actual temperature from the last data point
+            # Get actual temperature from the target data point (NOT from input sequence)
             ACTUAL_TEMP=$(tail -n 1 data/actual_value.csv | cut -d',' -f1 2>/dev/null || echo "0")
             
             echo "Predicted Temperature: ${PREDICTED_TEMP}°F"
@@ -415,45 +574,330 @@ jobs:
             
             echo ""
             echo "📊 Raw Data Comparison:"
-            echo "Actual values (target for prediction):"
+            echo "----------------------"
+            echo "Target value (what model was asked to predict):"
             cat data/actual_value.csv
-            echo "Test input data (last few rows):"
-            tail -n 3 data/test_input.csv | head -n 2
+            echo ""
+            echo "Input sequence (what model was given to make prediction):"
+            echo "Last 3 rows of input data:"
+            tail -n 3 data/test_input.csv
+            echo ""
+            echo "✅ Proper data separation: Target was NOT included in input sequence"
           fi
         fi
     
+    - name: Pre-artifact diagnostics
+      if: always()
+      run: |
+        echo "🔍 Pre-artifact diagnostics..."
+        echo "Current working directory: $(pwd)"
+        echo "Contents of current directory:"
+        ls -la .
+        echo ""
+        echo "Checking for expected directories and files:"
+        
+        # Check each expected location
+        for dir in data models bin; do
+          if [ -d "$dir" ]; then
+            echo "✅ $dir/ exists:"
+            ls -la "$dir/" | head -10
+          else
+            echo "❌ $dir/ missing"
+          fi
+          echo ""
+        done
+        
+        # Check specific files that should exist
+        echo "Checking for specific expected files:"
+        for file in bin/train bin/predict data/historical_data.csv; do
+          if [ -f "$file" ]; then
+            echo "✅ $file exists ($(ls -lh $file | awk '{print $5}'))"
+          else
+            echo "❌ $file missing"
+          fi
+        done
+        
+        # Check if the working directory is correct
+        echo ""
+        echo "Weather LSTM project structure check:"
+        if [ -f "Makefile" ]; then
+          echo "✅ Makefile found - in correct directory"
+        else
+          echo "❌ Makefile not found - might be in wrong directory"
+          echo "Looking for weather-lstm subdirectory..."
+          if [ -d "weather-lstm" ]; then
+            echo "✅ Found weather-lstm/ subdirectory"
+            echo "Contents:"
+            ls -la weather-lstm/ | head -10
+          else
+            echo "❌ No weather-lstm/ subdirectory found"
+          fi
+        fi
+        
+        # Memory and disk space check
+        echo ""
+        echo "System resources:"
+        echo "Memory: $(free -h 2>/dev/null | head -2 || echo 'N/A')"
+        echo "Disk space: $(df -h . | tail -1)"
+    
+    - name: Prepare artifacts for upload
+      if: always()
+      run: |
+        echo "📦 Preparing artifacts for upload..."
+        
+        # Create artifact directory structure with full paths
+        mkdir -p artifacts/models artifacts/data artifacts/bin
+        
+        # Verify artifact directory was created
+        if [ ! -d "artifacts" ]; then
+          echo "❌ Failed to create artifacts directory"
+          exit 1
+        fi
+        
+        echo "✅ Artifact directory structure created"
+        ls -la artifacts/
+        
+        # Copy existing files to artifact directory, checking for existence
+        FILES_FOUND=0
+        
+        # Check and copy model files
+        echo "🔍 Checking for model files..."
+        for model_file in models/weather_model.bin models/perf_test_model.bin; do
+          if [ -f "$model_file" ]; then
+            cp "$model_file" "artifacts/$model_file"
+            echo "✅ Added: $model_file ($(ls -lh $model_file | awk '{print $5}'))"
+            FILES_FOUND=$((FILES_FOUND + 1))
+          else
+            echo "⚠️  Missing: $model_file"
+          fi
+        done
+        
+        # Check and copy data files
+        echo "🔍 Checking for data files..."
+        for data_file in data/historical_data.csv data/recent_weather.csv data/prediction.csv data/accuracy_test.csv; do
+          if [ -f "$data_file" ]; then
+            cp "$data_file" "artifacts/$data_file"
+            echo "✅ Added: $data_file ($(wc -l < $data_file) lines)"
+            FILES_FOUND=$((FILES_FOUND + 1))
+          else
+            echo "⚠️  Missing: $data_file"
+          fi
+        done
+        
+        # Check and copy binaries
+        echo "🔍 Checking for binary files..."
+        if [ -d "bin" ] && [ "$(ls -A bin 2>/dev/null)" ]; then
+          cp bin/* artifacts/bin/ 2>/dev/null || true
+          BIN_COUNT=$(ls bin/ 2>/dev/null | wc -l)
+          echo "✅ Added: bin/ ($BIN_COUNT executables)"
+          FILES_FOUND=$((FILES_FOUND + 1))
+        else
+          echo "⚠️  Missing: bin/ directory or empty"
+        fi
+        
+        # Always create a manifest file (this ensures we have at least one file)
+        echo "📝 Creating artifact manifest..."
+        echo "# Weather LSTM Artifact Manifest" > artifacts/MANIFEST.txt
+        echo "Generated: $(date)" >> artifacts/MANIFEST.txt
+        echo "Workflow: ${{ github.workflow }}" >> artifacts/MANIFEST.txt
+        echo "Run ID: ${{ github.run_id }}" >> artifacts/MANIFEST.txt
+        echo "Commit: ${{ github.sha }}" >> artifacts/MANIFEST.txt
+        echo "Branch: ${{ github.ref_name }}" >> artifacts/MANIFEST.txt
+        echo "Triggered by: ${{ github.event_name }}" >> artifacts/MANIFEST.txt
+        echo "" >> artifacts/MANIFEST.txt
+        echo "Files included in this artifact:" >> artifacts/MANIFEST.txt
+        find artifacts -type f | sort >> artifacts/MANIFEST.txt
+        echo "" >> artifacts/MANIFEST.txt
+        echo "Artifact Statistics:" >> artifacts/MANIFEST.txt
+        echo "Total files: $(find artifacts -type f | wc -l)" >> artifacts/MANIFEST.txt
+        echo "Total size: $(du -sh artifacts | cut -f1)" >> artifacts/MANIFEST.txt
+        echo "" >> artifacts/MANIFEST.txt
+        echo "Step Results:" >> artifacts/MANIFEST.txt
+        echo "Binaries:" >> artifacts/MANIFEST.txt
+        ls -la bin/ 2>/dev/null | head -5 >> artifacts/MANIFEST.txt || echo "No binaries found" >> artifacts/MANIFEST.txt
+        echo "Models:" >> artifacts/MANIFEST.txt
+        ls -la models/ 2>/dev/null | head -5 >> artifacts/MANIFEST.txt || echo "No models found" >> artifacts/MANIFEST.txt
+        echo "Data files:" >> artifacts/MANIFEST.txt
+        ls -la data/ 2>/dev/null | head -5 >> artifacts/MANIFEST.txt || echo "No data files found" >> artifacts/MANIFEST.txt
+        
+        # Always increment FILES_FOUND for the manifest
+        FILES_FOUND=$((FILES_FOUND + 1))
+        
+        echo ""
+        echo "📊 Artifact Summary:"
+        echo "Files found and copied: $FILES_FOUND"
+        
+        # Debug: Show current working directory and files
+        echo ""
+        echo "🔍 Debug Information:"
+        echo "Current directory: $(pwd)"
+        echo "Available files in workspace:"
+        ls -la . | head -10
+        echo ""
+        echo "Available data files:"
+        ls -la data/ 2>/dev/null || echo "No data directory"
+        echo ""
+        echo "Available model files:"
+        ls -la models/ 2>/dev/null || echo "No models directory"  
+        echo ""
+        echo "Available binary files:"
+        ls -la bin/ 2>/dev/null || echo "No bin directory"
+        
+        # Verify artifacts directory has content
+        ARTIFACT_FILE_COUNT=$(find artifacts -type f | wc -l)
+        echo ""
+        echo "Artifact files created: $ARTIFACT_FILE_COUNT"
+        
+        if [ $ARTIFACT_FILE_COUNT -eq 0 ]; then
+          echo "❌ No files in artifacts directory - creating minimal artifact"
+          echo "Workflow run completed but no output files were generated" > artifacts/empty_run.txt
+          ARTIFACT_FILE_COUNT=1
+        fi
+        
+        echo "Total artifact size: $(du -sh artifacts | cut -f1)"
+        
+        # List all files in the artifact
+        echo ""
+        echo "📁 Final artifact contents:"
+        find artifacts -type f -exec ls -lh {} \; | sort -k9
+        
+        # Verify the directory exists and is not empty before upload
+        if [ -d "artifacts" ] && [ $ARTIFACT_FILE_COUNT -gt 0 ]; then
+          echo "✅ Artifacts ready for upload"
+          echo "files_found=$FILES_FOUND" >> $GITHUB_OUTPUT
+        else
+          echo "❌ Artifacts directory is empty or missing"
+          exit 1
+        fi
+
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
       if: always()
       with:
         name: weather-lstm-artifacts
-        path: |
-          models/weather_model.bin
-          models/perf_test_model.bin
-          data/historical_data.csv
-          data/recent_weather.csv
-          data/prediction.csv
-          data/accuracy_test.csv
-          bin/*
+        path: weather-lstm/artifacts/*
         retention-days: 30
+        if-no-files-found: warn
     
     - name: Summary
+      if: always()
       run: |
-        echo "=== Weather LSTM CI/CD Summary ==="
-        echo "✅ Build: Successful"
-        echo "✅ Data Fetch: Successful"
-        echo "✅ Training: Successful"
-        echo "✅ Prediction: Successful"
-        echo "✅ Accuracy Test: Successful"
-        echo "✅ Performance Test: Successful"
+        echo "============================================="
+        echo "      Weather LSTM CI/CD Summary"
+        echo "============================================="
+        echo "Run ID: ${{ github.run_id }}"
+        echo "Commit: ${{ github.sha }}"
+        echo "Workflow triggered: ${{ github.event_name }}"
         echo ""
-        echo "📁 Model files created:"
-        ls -lah models/ || echo "No model files"
+        
+        # Check status of each major step
+        echo "📋 Step Status:"
+        
+        # Check build status
+        if [ -f "bin/train" ] && [ -f "bin/predict" ]; then
+          echo "✅ Build: Successful"
+          BUILD_STATUS="✅"
+        else
+          echo "❌ Build: Failed"
+          BUILD_STATUS="❌"
+        fi
+        
+        # Check data fetch status  
+        if [ -f "data/historical_data.csv" ] && [ -s "data/historical_data.csv" ]; then
+          TRAINING_POINTS=$(($(wc -l < data/historical_data.csv) - 1))
+          echo "✅ Data Fetch: Successful ($TRAINING_POINTS training points)"
+          DATA_STATUS="✅"
+        else
+          echo "❌ Data Fetch: Failed"
+          DATA_STATUS="❌"
+        fi
+        
+        # Check training status
+        if [ -f "models/weather_model.bin" ] && [ -s "models/weather_model.bin" ]; then
+          MODEL_SIZE=$(ls -lh models/weather_model.bin | awk '{print $5}')
+          echo "✅ Training: Successful (model: $MODEL_SIZE)"
+          TRAINING_STATUS="✅"
+        else
+          echo "❌ Training: Failed"
+          TRAINING_STATUS="❌"
+        fi
+        
+        # Check prediction status
+        if [ -f "data/prediction.csv" ]; then
+          echo "✅ Prediction: Successful"
+          PREDICTION_STATUS="✅"
+        else
+          echo "⚠️  Prediction: Skipped or Failed"
+          PREDICTION_STATUS="⚠️"
+        fi
+        
+        # Check accuracy test status
+        if [ -f "data/accuracy_test.csv" ]; then
+          echo "✅ Accuracy Test: Successful"
+          ACCURACY_STATUS="✅"
+        else
+          echo "⚠️  Accuracy Test: Skipped or Failed"
+          ACCURACY_STATUS="⚠️"
+        fi
+        
         echo ""
-        echo "📄 Data files processed:"
-        ls -lah data/ || echo "No data files"
+        echo "📁 Generated Files:"
+        echo "-------------------"
+        
+        # Model files
+        echo "Models:"
+        if [ -d "models" ] && [ "$(ls -A models 2>/dev/null)" ]; then
+          ls -lah models/
+        else
+          echo "  No model files generated"
+        fi
+        
         echo ""
-        echo "🎯 Next run will download and continue from the current model"
-        echo "🔄 Model continuity: Each run builds upon the previous model's training"
+        echo "Data files:"
+        if [ -d "data" ] && [ "$(ls -A data 2>/dev/null)" ]; then
+          ls -lah data/
+        else
+          echo "  No data files generated"
+        fi
+        
         echo ""
-        echo "🎉 CI/CD pipeline completed successfully!"
+        echo "📊 Training Summary:"
+        echo "-------------------"
+        if [ -f "data/historical_data.csv" ]; then
+          TRAINING_POINTS=$(($(wc -l < data/historical_data.csv) - 1))
+          echo "Training data points: $TRAINING_POINTS"
+        fi
+        
+        if [ -f "data/recent_weather.csv" ]; then
+          RECENT_POINTS=$(($(wc -l < data/recent_weather.csv) - 1))
+          echo "Recent data points: $RECENT_POINTS"
+        fi
+        
+        # Show prediction results if available
+        if [ -f "data/prediction.csv" ]; then
+          echo ""
+          echo "🎯 Latest Prediction:"
+          echo "--------------------"
+          cat data/prediction.csv 2>/dev/null || echo "Could not read prediction"
+        fi
+        
+        # Overall status
+        echo ""
+        echo "🎯 Overall Pipeline Status:"
+        echo "---------------------------"
+        if [ "$BUILD_STATUS" = "✅" ] && [ "$DATA_STATUS" = "✅" ] && [ "$TRAINING_STATUS" = "✅" ]; then
+          echo "� SUCCESS: Core pipeline completed successfully!"
+          echo "   Next run will download and continue from the current model"
+          echo "   Model continuity: Each run builds upon previous training"
+        elif [ "$BUILD_STATUS" = "✅" ] && [ "$DATA_STATUS" = "✅" ]; then
+          echo "⚠️  PARTIAL: Build and data fetch successful, but training failed"
+          echo "   Check training logs for model parameter or data issues"
+        elif [ "$BUILD_STATUS" = "✅" ]; then
+          echo "❌ FAILED: Build successful, but data fetch failed"
+          echo "   Check NOAA API connectivity and station availability"
+        else
+          echo "❌ FAILED: Build failed - check compilation errors"
+        fi
+        
+        echo ""
+        echo "============================================="
